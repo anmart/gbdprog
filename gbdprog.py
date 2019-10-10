@@ -3,18 +3,18 @@ import subprocess
 import math
 import argparse
 
-# TODO - 
-# -- reportINCROMs --
-	# add in percentage
-# -- reportUnnamedSymbols --
-
-# global vals
+# global defaults
 banks = 0x40
+grepDir = "."
+incPrintFormat = "04x"
 
 def main():
 	parser = argparse.ArgumentParser(description='Progress checker for poketcg')
-	parser.add_argument('-i', '--incrom', action='store_true', help="Turns on incrom report")
-	parser.add_argument('-d', '--directory', default=".", help="Override incrom search directory. Ignores if incrom report is off")
+	parser.add_argument('-i', '--inc', action='store_true', help="Turns on include report")
+	parser.add_argument('-d', '--directory', default=grepDir, help="Override include search directory. Ignores if include report is off")
+	parser.add_argument('-a','--add', default=None, help="Number of bytes that are inc'd using unsupported methods.")
+	parser.add_argument('-p','--print_format', default=incPrintFormat, help="Format string for printing byte amounts in include report. Ignores if include report is off")
+	parser.add_argument('-n','--no_warn', action='store_true', help="Suppress warnings about unsupported inc methods.")
 	parser.add_argument('-s', '--symfile', default=None, type=argparse.FileType('r'), help="Turns on Unnamed Symbol report using given sym file")
 	parser.add_argument('-f', '--function_source', action='store_true', help='Shows a breakdown of what bank each unnamed function comes from. Ignores if symfile report is off')
 	parser.add_argument('-o', '--other_unnamed', action='store_true', help='Shows all other unnamed symbols and a count of how many there are. Ignores if symfile report is off')
@@ -22,8 +22,11 @@ def main():
 
 	args = parser.parse_args()
 
-	if args.incrom:
-		reportINCROMs(args.directory)
+	if args.inc:
+		addedBytes = 0
+		if args.add != None:
+			addedBytes = int(args.add,0)
+		reportINCROMs(args.directory, addedBytes, args.no_warn, args.print_format)
 		print("\n")
 
 	if args.symfile != None:
@@ -33,11 +36,24 @@ def main():
 			listBankSet = parseBankList(args.list_funcs)
 		reportUnnamedSymbols(args.symfile,listBankSet, args.function_source, args.other_unnamed)
 
-def reportINCROMs(incromDir):
-	grepProc = subprocess.Popen(['grep', '-r', 'INCROM', incromDir], stdout=subprocess.PIPE)
-	targetLines = grepProc.communicate()[0].decode().split('\n')
-	incromBytes = [0]*banks
-	incromByteTotal = 0
+def tryIncWarn(skip, line):
+	if not skipWarning:
+		print("The following line was not accepted, possibly due to using a constant. Please use -a to add bytes that are included using constants")
+		print(line)
+
+def tryWeirdWarn(skip, line):
+	if not skipWarning:
+		print("The following line was not accepted, due to a strange number of $ symbols.")
+		print(line)
+
+# does not support expressions or constants. Just checks very standard incbin/incroms
+def reportINCROMs(incDir, addedBytes, skipWarning, printFormat):
+	grep1Proc = subprocess.Popen(['grep', '-r', 'INCBIN', incDir], stdout=subprocess.PIPE)
+	grep2Proc = subprocess.Popen(['grep', '-r', 'INCROM', incDir], stdout=subprocess.PIPE)
+	targetLines = grep1Proc.communicate()[0].decode().split('\n')
+	targetLines += grep2Proc.communicate()[0].decode().split('\n')
+	incBytes = [0]*banks
+	incByteTotal = 0
 	for line in targetLines:
 		line = line.lower() # ignore case
 
@@ -53,31 +69,80 @@ def reportINCROMs(incromDir):
 		if 'binary file' in line:
 			continue
 
+# different starting here
 		# find the last two hex location values
 		splitLine = line.split("$")
 
-		# not sure what the line is, but it's not working so skip
-		if len(splitLine) < 3:
+		### Consider possible patterns for either inc type
+
+		lineParts = len(splitLine)
+		if lineParts <= 1:
+			# including an entire file (ignore) or including with unsupported constant
+			if "," in line: # more than one arg, just not split
+				tryIncWarn(skipWarning, line)
 			continue
 
-		incEnd = int(splitLine[-1],16)
-		incStart = int(splitLine[-2].split(",",1)[0],16)
+		elif lineParts == 2:
+			# only one hex value, other is an unsupported constant
+			tryIncWarn(skipWarning, line)
+			continue
+
+		elif lineParts == 3:
+			# INCROM with 2 arguments, or INCBIN with an unsupported constant or only 2 args
+			if "INCROM" in line:
+				incEnd = int(splitLine[-1],16)
+				incStart = int(splitLine[-2].split(",",1)[0],16)
+			else:
+				if "-" in splitLine[-1]:
+					tryIncWarn(skipWarning, line)
+					continue
+				else:
+					incDiff = int(splitLine[-1],16)
+					incStart = int(splitLine[-2].split(",",1)[0],16)
+					incEnd = incStart + incDiff
+
+		elif lineParts == 4:
+			# INCBIN with 3 arguments, or very odd INCROM
+			if "INCROM" in line:
+				tryWeirdWarn(skipWarning, line)
+			else:
+				incStart = int(splitLine[-3].split(",",1)[0],16)
+				if "-" in splitLine[-2]:
+					incEnd = int(splitLine[-2].split("-",1)[0].strip(),16) # isolate the second arg and use it as the end
+				else:
+					print("Not sure what to do with line, possible arithmetic? " + line)
+					continue
+
+		else:
+			# Absolutely no clue what this could be
+			tryWeirdWarn(skipWarning, line)
+
 		incBank = math.floor(incStart / 0x4000)
 		diff = incEnd - incStart
-		incromBytes[incBank] += diff
-		incromByteTotal += diff
-	print("Total: " + str(incromByteTotal) + " bytes")
+		incBytes[incBank] += diff
+		incByteTotal += diff
+	incByteTotal += addedBytes
+	print("Total: " + format(incByteTotal, printFormat) + " bytes")
 	print("Made up of the following: ")
+
+	baseNote = ""
+	if "x" in printFormat:
+		baseNote = "0x"
+
 	for i in range(0,banks):
-		if incromBytes[i] == 0:
+		if incBytes[i] == 0:
 			continue
 
-		bankName= "bank" + format(i,"02x") + ": "
+		bankName= "bank" + format(i,"02") + ": "
 		if i == 0:
 			bankName = "home:   "
-		bytesString = str(incromBytes[i])
+
+		bytesString = format(incBytes[i],printFormat)
 		formattingStrings = " "*(8-len(bytesString)) 
-		print(bankName + bytesString + formattingStrings + "bytes")
+		print(bankName + baseNote + bytesString + formattingStrings + "bytes")
+	if addedBytes > 0:
+		bytesString = format(addedBytes, printFormat)
+		print("Additional Bytes: " + baseNote + bytesString)
 
 
 # reads sym files and looks for instances of tcgdisasm's automatic symbols
