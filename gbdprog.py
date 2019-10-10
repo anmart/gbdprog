@@ -39,12 +39,12 @@ def main():
 		reportUnnamedSymbols(args.symfile,listBankSet, args.function_source, args.other_unnamed)
 
 def tryIncWarn(skip, line):
-	if not skipWarning:
+	if not skip:
 		print("The following line was not accepted, possibly due to using a constant. Please use -a to add bytes that are included using constants")
 		print(line)
 
 def tryWeirdWarn(skip, line):
-	if not skipWarning:
+	if not skip:
 		print("The following line was not accepted, due to a strange number of $ symbols.")
 		print(line)
 
