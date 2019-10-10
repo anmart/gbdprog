@@ -8,6 +8,8 @@ banks = 0x40
 grepDir = "."
 incPrintFormat = "04x"
 
+# TODO: percentage and entire func parser change
+
 def main():
 	parser = argparse.ArgumentParser(description='Progress checker for poketcg')
 	parser.add_argument('-i', '--inc', action='store_true', help="Turns on include report")
@@ -89,7 +91,7 @@ def reportINCROMs(incDir, addedBytes, skipWarning, printFormat):
 
 		elif lineParts == 3:
 			# INCROM with 2 arguments, or INCBIN with an unsupported constant or only 2 args
-			if "INCROM" in line:
+			if "incrom" in line:
 				incEnd = int(splitLine[-1],16)
 				incStart = int(splitLine[-2].split(",",1)[0],16)
 			else:
@@ -103,7 +105,7 @@ def reportINCROMs(incDir, addedBytes, skipWarning, printFormat):
 
 		elif lineParts == 4:
 			# INCBIN with 3 arguments, or very odd INCROM
-			if "INCROM" in line:
+			if "incrom" in line:
 				tryWeirdWarn(skipWarning, line)
 			else:
 				incStart = int(splitLine[-3].split(",",1)[0],16)
@@ -154,8 +156,7 @@ def reportUnnamedSymbols(symfile, listBankSet, showFunctionBanks, showOtherUnnam
 
 	# to cut back on for loops I'll manually list the super common ones, such as Func
 	funcCounts = [0]*banks
-	funcCount = 1
-	branchCount = 0
+	funcCount = 0
 	wramCount = 0
 	sramCount = 0
 	hramCount = 0
@@ -195,7 +196,8 @@ def reportUnnamedSymbols(symfile, listBankSet, showFunctionBanks, showOtherUnnam
 			globalAddr -= 0x4000
 		
 		globalAddrString = format(globalAddr,"04x")
-		if name.endswith(globalAddrString):
+		localAddrString = format(bank,"03x") + "_" + format(localAddr,"04x") # for mgbdis format
+		if name.endswith(globalAddrString) or name.endswith(localAddrString):
 
 			# don't pay as much attention to local labels
 			if "." in line:
@@ -204,17 +206,21 @@ def reportUnnamedSymbols(symfile, listBankSet, showFunctionBanks, showOtherUnnam
 			else:
 				unnamedLabelTotal += 1
 
-			labelType = name[0:len(globalAddrString)*-1]
+			# get different label type depending on which name.endswith matched
+			if name.endswith(localAddrString): # start with local as it's harder to match
+				labelType = name[0:len(localAddrString)*-1]
+			else:
+				labelType = name[0:len(globalAddrString)*-1]
+
+			if labelType.endswith("_"):
+				labelType = labelType[0:-1]
 
 			# take care of the common ones before looping
-			if labelType == "Func_":
+			if labelType == "Func":
 				if bank in listBankSet:
 					print("bank " + format(bank,'02x') + ":" + name)
 				funcCounts[bank] += 1
 				funcCount += 1
-				continue
-			elif labelType == "Branch_":
-				branchCount += 1
 				continue
 			elif labelType == "w":
 				wramCount += 1
@@ -235,9 +241,6 @@ def reportUnnamedSymbols(symfile, listBankSet, showFunctionBanks, showOtherUnnam
 			if not foundType:
 				typeCounts.append([labelType,1])
 					
-
-	# there are so many that I did them manually, but they're a misc type
-	typeCounts.append(["Branch_", branchCount])
 
 	# do some sorting.
 	typeCounts = sorted(typeCounts, key = lambda x: x[1], reverse = True) 
