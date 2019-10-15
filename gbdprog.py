@@ -20,7 +20,8 @@ def main():
 	parser.add_argument('-s', '--symfile', default=None, type=argparse.FileType('r'), help="Turns on Unnamed Symbol report using given sym file")
 	parser.add_argument('-f', '--function_source', action='store_true', help='Shows a breakdown of what bank each unnamed function comes from. Ignores if symfile report is off')
 	parser.add_argument('-o', '--other_unnamed', action='store_true', help='Shows all other unnamed symbols and a count of how many there are. Ignores if symfile report is off')
-	parser.add_argument('--list_funcs', nargs="+", default=None, help="Lists every unnamed function in the given banks. WILL BE LONG. ignores if symfile report is off")
+	parser.add_argument('-l', '--list_funcs', nargs="+", default=None, help="Lists every unnamed function in the given banks. WILL BE LONG. ignores if symfile report is off")
+	parser.add_argument('-w', '--words', action='store_true', help="Turns on Word report, which shows all nonzero magic number words")
 
 	args = parser.parse_args()
 
@@ -37,6 +38,10 @@ def main():
 		if args.list_funcs != None:
 			listBankSet = parseBankList(args.list_funcs)
 		reportUnnamedSymbols(args.symfile,listBankSet, args.function_source, args.other_unnamed)
+		print("\n")
+
+	if args.words:
+		reportUnnamedWords(args.directory)
 
 def tryIncWarn(skip, line):
 	if not skip:
@@ -288,6 +293,41 @@ def parseBankList(strList):
 			retSet.add(int(bankName,0))
 	return retSet
 
+# TODO: This works roughly, but it could be rewritten to be a lot better.
+# Make the search just for $.... then after discarding things we don't want, 
+# split the list by $ and see how many valid 4 digit hex numbers we can find
+# Can use int(str[x][0:4], 16) and catch the error to determine if it's legit.
+def reportUnnamedWords(searchDir):
+	grep1Proc = subprocess.Popen(['grep', '-r', '\\$....$', searchDir], stdout=subprocess.PIPE)
+	grep2Proc = subprocess.Popen(['grep', '-r', '\\$....]', searchDir], stdout=subprocess.PIPE) # grep doesn't seem to like or's
+	targetLines = grep1Proc.communicate()[0].decode().split('\n')
+	targetLines += grep2Proc.communicate()[0].decode().split('\n')
+	fileWordList = []
+	longest = 0
+	for line in targetLines:
+		line = line.lower()
+		if ".asm" not in line:
+			continue
+		if "binary" in line:
+			continue
+		if "incrom" in line or "incbin" in line:
+			continue
+		fileName = line.split(":")[0]
+		found = False
+		for i in range(len(fileWordList)):
+			if fileName == fileWordList[i][0]:
+				found = True
+				fileWordList[i][1] += 1
+		if not found:
+			fileWordList.append([fileName,1])
+			if len(fileName) > longest:
+				longest = len(fileName)
+
+	fileWordList = sorted(fileWordList, key = lambda x: x[1], reverse = True) 
+
+	for fileList in fileWordList:
+		spaces = " " * (longest + 5 - len(fileList[0]))
+		print(fileList[0] + ":" + spaces + "x" + format(fileList[1], "d"))
 
 if __name__ == '__main__':
 	main()
