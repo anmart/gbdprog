@@ -22,6 +22,7 @@ def main():
 	parser.add_argument('-o', '--other_unnamed', action='store_true', help='Shows all other unnamed symbols and a count of how many there are. Ignores if symfile report is off')
 	parser.add_argument('-l', '--list_funcs', nargs="+", default=None, help="Lists every unnamed function in the given banks. WILL BE LONG. ignores if symfile report is off")
 	parser.add_argument('-w', '--words', action='store_true', help="Turns on Word report, which shows all nonzero magic number words")
+	parser.add_argument('-t', '--strict', action='store_true', help="Caused Word Report to be more strict, only allowing end of line or ] at the end NOTE: NOT RECOMMENDED DUE TO LINES WITH COMMENTS")
 
 	args = parser.parse_args()
 
@@ -41,7 +42,7 @@ def main():
 		print("\n")
 
 	if args.words:
-		reportUnnamedWords(args.directory)
+		reportUnnamedWords(args.directory, args.strict)
 
 def tryIncWarn(skip, line):
 	if not skip:
@@ -293,33 +294,49 @@ def parseBankList(strList):
 			retSet.add(int(bankName,0))
 	return retSet
 
-# TODO: This works roughly, but it could be rewritten to be a lot better.
-# Make the search just for $.... then after discarding things we don't want, 
-# split the list by $ and see how many valid 4 digit hex numbers we can find
-# Can use int(str[x][0:4], 16) and catch the error to determine if it's legit.
-def reportUnnamedWords(searchDir):
-	grep1Proc = subprocess.Popen(['grep', '-r', '\\$....$', searchDir], stdout=subprocess.PIPE)
-	grep2Proc = subprocess.Popen(['grep', '-r', '\\$....]', searchDir], stdout=subprocess.PIPE) # grep doesn't seem to like or's
-	targetLines = grep1Proc.communicate()[0].decode().split('\n')
-	targetLines += grep2Proc.communicate()[0].decode().split('\n')
+def reportUnnamedWords(searchDir, strictMode):
+	grepProc = subprocess.Popen(['grep', '-r', '\\$....', searchDir], stdout=subprocess.PIPE)
+	targetLines = grepProc.communicate()[0].decode().split('\n')
 	fileWordList = []
 	longest = 0
 	for line in targetLines:
 		line = line.lower()
+		if ".map" in line:
+			continue
 		if ".asm" not in line:
 			continue
 		if "binary" in line:
 			continue
+		if "macro" in line:
+			continue
 		if "incrom" in line or "incbin" in line:
 			continue
+
+		lineWordCount = 0
+		brokenLine = line.split("$")[1:] # skip the 0th because it's definitely not a word
+		for trystr in brokenLine:
+			if strictMode:
+				if len(trystr) > 4 and trystr[4] != "]":	# len check ensures it wasn't end of line
+					continue
+			try:
+				val = int(trystr[0:4],16)
+				if val == 0:
+					continue
+			except ValueError:
+				continue
+			lineWordCount += 1
+
+		if lineWordCount == 0:
+			continue
+
 		fileName = line.split(":")[0]
 		found = False
 		for i in range(len(fileWordList)):
 			if fileName == fileWordList[i][0]:
 				found = True
-				fileWordList[i][1] += 1
+				fileWordList[i][1] += lineWordCount
 		if not found:
-			fileWordList.append([fileName,1])
+			fileWordList.append([fileName,lineWordCount])
 			if len(fileName) > longest:
 				longest = len(fileName)
 
