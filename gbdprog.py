@@ -231,12 +231,17 @@ def reportUnnamedSymbols(symfile, listBankSet, showFunctionBanks, showOtherUnnam
 			elif labelType == "w":
 				wramCount += 1
 				continue
-			elif labelType in ["s0","s1","s2","s3"]: # all that are listed in sram.asm
-				sramCount += 1
-				continue
 			elif labelType == "h":
 				hramCount += 1
 				continue
+
+			if labelType[0] == "s":
+				try:
+					val = int(labelType[1:],16)
+					sramCount += 1
+					continue
+				except ValueError:
+					break
 
 			foundType = False
 			for tc in typeCounts:
