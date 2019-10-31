@@ -4,19 +4,20 @@ import math
 import argparse
 
 # global defaults
-banks = 0x40
 grepDir = "."
 incPrintFormat = "04x"
-
-# TODO: percentage and entire func parser change
+banks = 0x40
+unusedBanks = 0
 
 def main():
 	useText = "Examples:\n\n"
 	useText += "Simple useful run:\n"
-	useText += "\tgbdprog -mis game.sym\n"
+	useText += "\tgbdprog -mis game.sym --auto_map\n"
 	useText += "Full report with too much info:\n"
 	useText += "\tgbdprog -ifow -l home -s game.sym\n"
 	parser = argparse.ArgumentParser(description='Progress checker for poketcg', epilog=useText, formatter_class=argparse.RawDescriptionHelpFormatter)
+	parser.add_argument('-e', '--map', default=None, help="The project's Map file. Used to find various bank data if not already defined. Use --auto_map to assume the map file")
+	parser.add_argument('--auto_map', action='store_true', help="Assume the project's map file using the sym file")
 	parser.add_argument('-i', '--inc', action='store_true', help="Turns on include report")
 	parser.add_argument('-d', '--directory', default=grepDir, help="Override include search directory. Ignored if include report is off")
 	parser.add_argument('-a','--add', default=None, help="Number of bytes that are inc'd using unsupported methods.")
@@ -31,6 +32,17 @@ def main():
 	parser.add_argument('-t', '--strict', action='store_true', help="Caused Word Report to be more strict, only allowing end of line or ] at the end NOTE: NOT RECOMMENDED DUE TO LINES WITH COMMENTS")
 
 	args = parser.parse_args()
+
+	# try to get values from the map
+	mapFile = None
+	if args.map != None:
+		mapFile = args.map
+	elif args.auto_map and args.symfile != None:
+		sname = args.symfile.name
+		if sname[-4:] == ".sym":
+			mapFile = sname[:-4] + ".map"
+	if mapFile != None:
+		tryReadMapFile(mapFile)
 
 	doneSomething = False
 
@@ -59,6 +71,16 @@ def main():
 
 	if not doneSomething:
 		parser.print_help()
+
+def tryReadMapFile(mapFile):
+	try:
+		with open(mapFile, "r") as m:
+			data = m.read()
+			banks = data.count("ROM Bank #")
+			unusedBanks = data.count("Empty Bank ")
+
+	except Exception:
+		print("Could not find map file at " + mapFile + " - Skipping...")
 
 def tryIncWarn(skip, line):
 	if not skip:
@@ -145,7 +167,9 @@ def reportINCROMs(incDir, addedBytes, skipWarning, printFormat, minimal):
 		incBytes[incBank] += diff
 		incByteTotal += diff
 	incByteTotal += addedBytes
-	print("Total INC'd: " + format(incByteTotal, printFormat) + " bytes")
+	byteTotal = (banks - unusedBanks) * 0x4000
+	percentIncd = round((incByteTotal / byteTotal)*100, 3)
+	print("Total INC'd: " + format(incByteTotal, printFormat) + " bytes (" + str(percentIncd) + "%)")
 	if minimal:
 		return
 	print("Made up of the following: ")
