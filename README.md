@@ -25,6 +25,22 @@ Written in Python 3
  - Minimal run mode
 	 - Good for quick webhook messages
 
+## Setup
+There are a few values that are stored in the py file to make things run a bit smoother.
+
+ - `grepDir`
+	 - Default: `"."`
+	 - Directory for grep to run in by default. Ignored if `-d` flag is used.
+ - `incPrintFormat`
+	 - Default: `"04x"`
+	 - Format string passed to python's [format function](https://docs.python.org/3/library/string.html#format-string-syntax) for certain printed values.  
+ - `banks`
+	 - Default: `0x40`
+	 - Amount of banks in the game, used for incrom percentage. Ignored if gbdprog is told about a valid map file.
+ - `unusedBanks`
+	 - Default: `0`
+	 - banks that have absolutely nothing in them, used for incrom percentage. Ignored if gbdprog is told about a valid map file.
+
 ## Usage
 
     usage: gbdprog.py [-h] [-e MAP] [--auto_map] [-i] [-d DIRECTORY] [-a ADD] [-m]
