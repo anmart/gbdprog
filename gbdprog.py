@@ -11,27 +11,37 @@ incPrintFormat = "04x"
 # TODO: percentage and entire func parser change
 
 def main():
-	parser = argparse.ArgumentParser(description='Progress checker for poketcg')
+	useText = "Examples:\n\n"
+	useText += "Simple useful run:\n"
+	useText += "\tgbdprog -mis game.sym\n"
+	useText += "Full report with too much info:\n"
+	useText += "\tgbdprog -ifow -l home -s game.sym\n"
+	parser = argparse.ArgumentParser(description='Progress checker for poketcg', epilog=useText, formatter_class=argparse.RawDescriptionHelpFormatter)
 	parser.add_argument('-i', '--inc', action='store_true', help="Turns on include report")
-	parser.add_argument('-d', '--directory', default=grepDir, help="Override include search directory. Ignores if include report is off")
+	parser.add_argument('-d', '--directory', default=grepDir, help="Override include search directory. Ignored if include report is off")
 	parser.add_argument('-a','--add', default=None, help="Number of bytes that are inc'd using unsupported methods.")
-	parser.add_argument('-p','--print_format', default=incPrintFormat, help="Format string for printing byte amounts in include report. Ignores if include report is off")
+	parser.add_argument('-m','--min_inc', action='store_true', help="Runs the inc report minimally, using few lines. Ignored if include report is off")
+	parser.add_argument('-p','--print_format', default=incPrintFormat, help="Format string for printing byte amounts in include report. Ignored if include report is off")
 	parser.add_argument('-n','--no_warn', action='store_true', help="Suppress warnings about unsupported inc methods.")
 	parser.add_argument('-s', '--symfile', default=None, type=argparse.FileType('r'), help="Turns on Unnamed Symbol report using given sym file")
-	parser.add_argument('-f', '--function_source', action='store_true', help='Shows a breakdown of what bank each unnamed function comes from. Ignores if symfile report is off')
-	parser.add_argument('-o', '--other_unnamed', action='store_true', help='Shows all other unnamed symbols and a count of how many there are. Ignores if symfile report is off')
-	parser.add_argument('-l', '--list_funcs', nargs="+", default=None, help="Lists every unnamed function in the given banks. WILL BE LONG. ignores if symfile report is off")
+	parser.add_argument('-f', '--function_source', action='store_true', help='Shows a breakdown of what bank each unnamed function comes from. Ignored if symfile report is off')
+	parser.add_argument('-o', '--other_unnamed', action='store_true', help='Shows all other unnamed symbols and a count of how many there are. Ignored if symfile report is off')
+	parser.add_argument('-l', '--list_funcs', nargs="+", default=None, help="Lists every unnamed function in the given banks. WILL BE LONG. ignored if symfile report is off")
 	parser.add_argument('-w', '--words', action='store_true', help="Turns on Word report, which shows all nonzero magic number words")
 	parser.add_argument('-t', '--strict', action='store_true', help="Caused Word Report to be more strict, only allowing end of line or ] at the end NOTE: NOT RECOMMENDED DUE TO LINES WITH COMMENTS")
 
 	args = parser.parse_args()
 
+	doneSomething = False
+
 	if args.inc:
 		addedBytes = 0
 		if args.add != None:
 			addedBytes = int(args.add,0)
-		reportINCROMs(args.directory, addedBytes, args.no_warn, args.print_format)
-		print("\n")
+		reportINCROMs(args.directory, addedBytes, args.no_warn, args.print_format, args.min_inc)
+		doneSomething = True
+		if not args.min_inc:
+			print()
 
 	if args.symfile != None:
 		# parse the list command
@@ -39,10 +49,15 @@ def main():
 		if args.list_funcs != None:
 			listBankSet = parseBankList(args.list_funcs)
 		reportUnnamedSymbols(args.symfile,listBankSet, args.function_source, args.other_unnamed)
-		print("\n")
+		doneSomething = True
+		print()
 
 	if args.words:
 		reportUnnamedWords(args.directory, args.strict)
+		doneSomething = True
+
+	if not doneSomething:
+		parser.print_help()
 
 def tryIncWarn(skip, line):
 	if not skip:
@@ -55,7 +70,7 @@ def tryWeirdWarn(skip, line):
 		print(line)
 
 # does not support expressions or constants. Just checks very standard incbin/incroms
-def reportINCROMs(incDir, addedBytes, skipWarning, printFormat):
+def reportINCROMs(incDir, addedBytes, skipWarning, printFormat, minIncReport):
 	grep1Proc = subprocess.Popen(['grep', '-r', 'INCBIN', incDir], stdout=subprocess.PIPE)
 	grep2Proc = subprocess.Popen(['grep', '-r', 'INCROM', incDir], stdout=subprocess.PIPE)
 	targetLines = grep1Proc.communicate()[0].decode().split('\n')
@@ -77,7 +92,6 @@ def reportINCROMs(incDir, addedBytes, skipWarning, printFormat):
 		if 'binary file' in line:
 			continue
 
-# different starting here
 		# find the last two hex location values
 		splitLine = line.split("$")
 
@@ -130,7 +144,9 @@ def reportINCROMs(incDir, addedBytes, skipWarning, printFormat):
 		incBytes[incBank] += diff
 		incByteTotal += diff
 	incByteTotal += addedBytes
-	print("Total: " + format(incByteTotal, printFormat) + " bytes")
+	print("Total INC'd: " + format(incByteTotal, printFormat) + " bytes")
+	if minIncReport:
+		return
 	print("Made up of the following: ")
 
 	baseNote = ""
@@ -146,7 +162,7 @@ def reportINCROMs(incDir, addedBytes, skipWarning, printFormat):
 			bankName = "home:   "
 
 		bytesString = format(incBytes[i],printFormat)
-		formattingStrings = " "*(8-len(bytesString)) 
+		formattingStrings = " "*(7-len(bytesString)) 
 		print(bankName + baseNote + bytesString + formattingStrings + "bytes")
 	if addedBytes > 0:
 		bytesString = format(addedBytes, printFormat)
@@ -263,7 +279,6 @@ def reportUnnamedSymbols(symfile, listBankSet, showFunctionBanks, showOtherUnnam
 
 	print("Named Labels: " + str(namedLabelTotal) + "/" + str(labelTotal) + " (" + str(namedLabelPercent) + "%)")
 	print("Named Local Labels: " + str(namedLocalLabelTotal) + "/" + str(localLabelTotal) + " (" + str(namedLocalLabelPercent) + "%)")
-	print()
 	print("func count:   " + str(funcCount))
 	if showFunctionBanks:
 		for i in range(0,banks):
@@ -347,6 +362,7 @@ def reportUnnamedWords(searchDir, strictMode):
 
 	fileWordList = sorted(fileWordList, key = lambda x: x[1], reverse = True) 
 
+	print("Unnamed words:")
 	for fileList in fileWordList:
 		spaces = " " * (longest + 5 - len(fileList[0]))
 		print(fileList[0] + ":" + spaces + "x" + format(fileList[1], "d"))
