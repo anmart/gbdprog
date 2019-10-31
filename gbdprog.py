@@ -20,7 +20,7 @@ def main():
 	parser.add_argument('-i', '--inc', action='store_true', help="Turns on include report")
 	parser.add_argument('-d', '--directory', default=grepDir, help="Override include search directory. Ignored if include report is off")
 	parser.add_argument('-a','--add', default=None, help="Number of bytes that are inc'd using unsupported methods.")
-	parser.add_argument('-m','--min_inc', action='store_true', help="Runs the inc report minimally, using few lines. Ignored if include report is off")
+	parser.add_argument('-m','--minimal', action='store_true', help="Runs reports minimally where possible, using fewer lines than normal")
 	parser.add_argument('-p','--print_format', default=incPrintFormat, help="Format string for printing byte amounts in include report. Ignored if include report is off")
 	parser.add_argument('-n','--no_warn', action='store_true', help="Suppress warnings about unsupported inc methods.")
 	parser.add_argument('-s', '--symfile', default=None, type=argparse.FileType('r'), help="Turns on Unnamed Symbol report using given sym file")
@@ -38,9 +38,9 @@ def main():
 		addedBytes = 0
 		if args.add != None:
 			addedBytes = int(args.add,0)
-		reportINCROMs(args.directory, addedBytes, args.no_warn, args.print_format, args.min_inc)
+		reportINCROMs(args.directory, addedBytes, args.no_warn, args.print_format, args.minimal)
 		doneSomething = True
-		if not args.min_inc:
+		if not args.minimal:
 			print()
 
 	if args.symfile != None:
@@ -48,9 +48,10 @@ def main():
 		listBankSet = set([])
 		if args.list_funcs != None:
 			listBankSet = parseBankList(args.list_funcs)
-		reportUnnamedSymbols(args.symfile,listBankSet, args.function_source, args.other_unnamed)
+		reportUnnamedSymbols(args.symfile,listBankSet, args.function_source, args.other_unnamed,args.minimal)
 		doneSomething = True
-		print()
+		if not args.minimal:
+			print()
 
 	if args.words:
 		reportUnnamedWords(args.directory, args.strict)
@@ -70,7 +71,7 @@ def tryWeirdWarn(skip, line):
 		print(line)
 
 # does not support expressions or constants. Just checks very standard incbin/incroms
-def reportINCROMs(incDir, addedBytes, skipWarning, printFormat, minIncReport):
+def reportINCROMs(incDir, addedBytes, skipWarning, printFormat, minimal):
 	grep1Proc = subprocess.Popen(['grep', '-r', 'INCBIN', incDir], stdout=subprocess.PIPE)
 	grep2Proc = subprocess.Popen(['grep', '-r', 'INCROM', incDir], stdout=subprocess.PIPE)
 	targetLines = grep1Proc.communicate()[0].decode().split('\n')
@@ -145,7 +146,7 @@ def reportINCROMs(incDir, addedBytes, skipWarning, printFormat, minIncReport):
 		incByteTotal += diff
 	incByteTotal += addedBytes
 	print("Total INC'd: " + format(incByteTotal, printFormat) + " bytes")
-	if minIncReport:
+	if minimal:
 		return
 	print("Made up of the following: ")
 
@@ -170,7 +171,7 @@ def reportINCROMs(incDir, addedBytes, skipWarning, printFormat, minIncReport):
 
 
 # reads sym files and looks for instances of tcgdisasm's automatic symbols
-def reportUnnamedSymbols(symfile, listBankSet, showFunctionBanks, showOtherUnnamed):
+def reportUnnamedSymbols(symfile, listBankSet, showFunctionBanks, showOtherUnnamed, minimal):
 	data = symfile.read().split("\n")
 
 	# format [ [ "type" : number ], ... ]
@@ -279,6 +280,11 @@ def reportUnnamedSymbols(symfile, listBankSet, showFunctionBanks, showOtherUnnam
 
 	print("Named Labels: " + str(namedLabelTotal) + "/" + str(labelTotal) + " (" + str(namedLabelPercent) + "%)")
 	print("Named Local Labels: " + str(namedLocalLabelTotal) + "/" + str(localLabelTotal) + " (" + str(namedLocalLabelPercent) + "%)")
+
+	if minimal:
+		print("Unnamed Functions: " + str(funcCount))
+		return
+
 	print("func count:   " + str(funcCount))
 	if showFunctionBanks:
 		for i in range(0,banks):
